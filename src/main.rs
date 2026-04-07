@@ -536,3 +536,93 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::output::CliJsonOutput;
+    use std::collections::BTreeMap;
+
+    /// creates a minimal `ProcessedDetectionResult` filled only with `range_to_final_result`.
+    fn make_pdr(ranges: Vec<(Range<usize>, Option<Arch>)>) -> ProcessedDetectionResult {
+        ProcessedDetectionResult {
+            win_sz: 0,
+            max_kl_bg: 0.0,
+            min_kl_bg: 0.0,
+            max_kl_tg: 0.0,
+            min_kl_tg: 0.0,
+            range_to_result_bg: HashMap::new(),
+            range_to_result_tg: HashMap::new(),
+            arch_to_idx: HashMap::new(),
+            idx_to_arch: HashMap::new(),
+            kl_arch_to_range_bg: BTreeMap::new(),
+            kl_arch_to_range_tg: BTreeMap::new(),
+            range_to_final_result: ranges.into_iter().collect(),
+            arch_to_final_ranges: HashMap::new(),
+        }
+    }
+
+    fn get_results(pdr: &ProcessedDetectionResult) -> Vec<serde_json::Value> {
+        let output = CliJsonOutput::from(("test", pdr));
+        serde_json::to_value(&output).unwrap()["range_results"]
+            .as_array()
+            .unwrap()
+            .clone()
+    }
+
+    /// Regression Test #1:
+    /// Adjacent ranges of the same type with None entries in-between are merged.
+    #[test]
+    fn test_adjacent_same_type_separated_by_none_are_merged() {
+        let pdr = make_pdr(vec![
+            (0..2000, Some("foo".to_string())),
+            (1000..3000, None),
+            (2000..4000, Some("foo".to_string())),
+        ]);
+        let results = get_results(&pdr);
+
+        assert_eq!(results.len(), 1, "adjacent ranges must be merged");
+        assert_eq!(results[0][0]["start"], 0);
+        assert_eq!(results[0][0]["end"], 4000);
+        assert_eq!(results[0][2], "foo");
+    }
+
+    /// Regression Test #2:
+    /// Ranges of the same type with gaps in-between (not None) should not be merged
+    #[test]
+    fn test_non_adjacent_same_type_not_merged() {
+        let pdr = make_pdr(vec![
+            (0..100, Some("foo".to_string())),
+            (200..300, Some("foo".to_string())),
+        ]);
+        let results = get_results(&pdr);
+
+        assert_eq!(results.len(), 2, "ranges with gap should not be merged");
+        assert_eq!(results[0][0]["start"], 0);
+        assert_eq!(results[0][0]["end"], 100);
+        assert_eq!(results[1][0]["start"], 200);
+        assert_eq!(results[1][0]["end"], 300);
+    }
+
+    /// Regression Test #3:
+    /// Overlapping ranges of different type should be trimmed
+    #[test]
+    fn test_overlapping_different_types_are_trimmed() {
+        let pdr = make_pdr(vec![
+            (0..1500, Some("foo".to_string())),
+            (1000..2000, Some("bar".to_string())), // overlaps
+        ]);
+        let results = get_results(&pdr);
+
+        assert_eq!(results.len(), 2, "overlapping ranges must not be merged");
+        assert_eq!(results[0][0]["start"], 0);
+        assert_eq!(
+            results[0][0]["end"], 1000,
+            "the end of the first range should be trimmed to the beginning of the second range"
+        );
+        assert_eq!(results[0][2], "foo");
+        assert_eq!(results[1][0]["start"], 1000);
+        assert_eq!(results[1][0]["end"], 2000);
+        assert_eq!(results[1][2], "bar");
+    }
+}

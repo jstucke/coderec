@@ -20,7 +20,6 @@ use crate::{Arch, ProcessedDetectionResult};
 use std::convert::From;
 use std::ops::Range;
 
-use itertools::Itertools;
 use serde::Serialize;
 
 /// Information that is printed to stdout for each analyzed file.
@@ -34,33 +33,44 @@ pub struct CliJsonOutput {
 
 impl From<(&str, &ProcessedDetectionResult)> for CliJsonOutput {
     fn from((file, res): (&str, &ProcessedDetectionResult)) -> Self {
-        let mut range_to_final_result: Vec<_> = res.range_to_final_result.iter().collect();
-        range_to_final_result
-            .sort_unstable_by(|(range_a, _), (range_b, _)| range_a.start.cmp(&range_b.start));
-        let runs = range_to_final_result
+        let mut range_to_final_result: Vec<_> = res
+            .range_to_final_result
             .iter()
-            .chunk_by(|(_, arch_op)| (*arch_op).clone());
+            .filter(|(_, arch_op)| arch_op.is_some())
+            .collect();
+        range_to_final_result.sort_unstable_by(|(a, _), (b, _)| a.start.cmp(&b.start));
+
+        let range_results = range_to_final_result
+            .into_iter()
+            .fold(
+                Vec::<(Range<usize>, Arch)>::new(),
+                |mut acc, (range, arch_op)| {
+                    let arch = arch_op.as_ref().unwrap();
+                    if let Some((last_range, last_arch)) = acc.last_mut() {
+                        // merge if same type and adjacent/overlapping
+                        if last_arch == arch && range.start <= last_range.end {
+                            last_range.end = last_range.end.max(range.end);
+                            return acc;
+                        }
+                        // if ranges overlap: trim end to start of next range
+                        if range.start < last_range.end {
+                            last_range.end = range.start;
+                        }
+                    }
+                    acc.push((range.clone(), arch.clone()));
+                    acc
+                },
+            )
+            .into_iter()
+            .map(|(range, arch)| {
+                let len = range.end - range.start;
+                (range, len, arch)
+            })
+            .collect();
 
         CliJsonOutput {
             file: file.to_owned(),
-            range_results: runs
-                .into_iter()
-                .filter_map(|(arch_op, mut ranges)| {
-                    let first_range = ranges.next().unwrap().0.clone();
-                    let last_range = match ranges.last() {
-                        Some((range, _)) => (*range).clone(),
-                        None => first_range.clone(),
-                    };
-
-                    arch_op.map(|arch| {
-                        (
-                            first_range.start..last_range.end,
-                            last_range.end - first_range.start,
-                            arch,
-                        )
-                    })
-                })
-                .collect(),
+            range_results,
         }
     }
 }
