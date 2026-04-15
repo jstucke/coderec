@@ -391,7 +391,7 @@ fn detect_code(corpus_stats: &[CorpusStats], file_data: &[u8], filename: &str) -
 
     let res_ex: DetectionResult = (0..file_data.len())
         .into_par_iter()
-        .step_by(window)
+        .step_by(window * 2)
         .map(|start| {
             let end = min(file_data.len(), start + window * 2);
 
