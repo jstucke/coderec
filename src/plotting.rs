@@ -17,6 +17,7 @@
 use crate::{CorpusStats, ProcessedDetectionResult, RangeResult};
 
 use itertools::Itertools;
+use std::fs;
 use log::info;
 use plotters::coord::combinators::IntoLogRange;
 use plotters::prelude::full_palette::{GREY, ORANGE};
@@ -159,13 +160,24 @@ pub fn plot_regions(
     det_res: &ProcessedDetectionResult,
     big_file: bool,
     base_address: u64,
+    output_path: Option<impl AsRef<str>>,
 ) {
     let win_sz = det_res.win_sz;
     let arch_to_idx = &det_res.arch_to_idx;
     let arch_to_best_map = &det_res.arch_to_final_ranges;
 
     let file_name = file_name.split("/").last().unwrap();
-    let plot_name = format!("{}_w{}_regions.png", file_name, win_sz);
+    let plot_name = if let Some(path) = output_path {
+        path.as_ref().to_string()
+    } else {
+        format!("{}_w{}_regions.png", file_name, win_sz)
+    };
+
+    if let Some(parent) = std::path::Path::new(&plot_name).parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = fs::create_dir_all(parent);
+        }
+    }
 
     let root = BitMapBackend::new(&plot_name, (5000, 500)).into_drawing_area();
     root.fill(&WHITE).unwrap();
