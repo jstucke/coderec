@@ -463,6 +463,16 @@ fn main() -> Result<()> {
                 .help("Output path for the generated images."),
         )
         .arg(
+            Arg::new("format")
+                .short('F')
+                .long("format")
+                .required(false)
+                .action(clap::ArgAction::Set)
+                .value_parser(clap::builder::PossibleValuesParser::new(["png", "svg"]))
+                .help("Output format for images.")
+                .default_value("png"),
+        )
+        .arg(
             Arg::new("files")
                 .action(ArgAction::Append)
                 .value_parser(clap::builder::NonEmptyStringValueParser::new())
@@ -485,6 +495,8 @@ fn main() -> Result<()> {
     let big_file = args.get_flag("big-file");
 
     let output_path: Option<&String> = args.get_one("output");
+
+    let format: &String = args.get_one("format").unwrap();
 
     let base_address: &u64 = args.get_one("base").unwrap();
 
@@ -533,6 +545,7 @@ fn main() -> Result<()> {
                 big_file,
                 base_address,
                 output_path,
+                format,
             );
         }
 
