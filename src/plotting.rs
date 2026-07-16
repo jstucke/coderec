@@ -17,6 +17,7 @@
 use crate::{CorpusStats, ProcessedDetectionResult, RangeResult};
 
 use itertools::Itertools;
+use std::fs;
 use log::info;
 use plotters::coord::combinators::IntoLogRange;
 use plotters::prelude::full_palette::{GREY, ORANGE};
@@ -159,15 +160,51 @@ pub fn plot_regions(
     det_res: &ProcessedDetectionResult,
     big_file: bool,
     base_address: u64,
+    output_path: Option<impl AsRef<str>>,
+    output_format: &str,
 ) {
     let win_sz = det_res.win_sz;
+
+    let file_name = file_name.split("/").last().unwrap();
+    let plot_name = if let Some(path) = output_path {
+        path.as_ref().to_string()
+    } else {
+        format!("{}_w{}_regions.{}", file_name, win_sz, output_format)
+    };
+
+    if let Some(parent) = std::path::Path::new(&plot_name).parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = fs::create_dir_all(parent);
+        }
+    }
+
+    if output_format == "svg" {
+        let root = SVGBackend::new(&plot_name, (5000, 500)).into_drawing_area();
+        plot_regions_with_backend(
+            root, file_name, file_len, file_bytes, det_res, big_file, base_address,
+        );
+    } else {
+        let root = BitMapBackend::new(&plot_name, (5000, 500)).into_drawing_area();
+        let root_clone = root.clone();
+        plot_regions_with_backend(
+            root, file_name, file_len, file_bytes, det_res, big_file, base_address,
+        );
+        root_clone.present().unwrap();
+    }
+}
+
+fn plot_regions_with_backend<Backend: plotters::backend::DrawingBackend>(
+    root: DrawingArea<Backend, plotters::coord::Shift>,
+    file_name: &str,
+    file_len: usize,
+    file_bytes: &[u8],
+    det_res: &ProcessedDetectionResult,
+    big_file: bool,
+    base_address: u64,
+) {
     let arch_to_idx = &det_res.arch_to_idx;
     let arch_to_best_map = &det_res.arch_to_final_ranges;
 
-    let file_name = file_name.split("/").last().unwrap();
-    let plot_name = format!("{}_w{}_regions.png", file_name, win_sz);
-
-    let root = BitMapBackend::new(&plot_name, (5000, 500)).into_drawing_area();
     root.fill(&WHITE).unwrap();
 
     let mut chart = ChartBuilder::on(&root)
@@ -313,8 +350,6 @@ pub fn plot_regions(
         .label_style(LABEL_STYLE_2D)
         .draw()
         .unwrap();
-
-    root.present().unwrap();
 }
 
 pub fn plot_divs(file_name: &str, file_len: usize, det_res: &ProcessedDetectionResult) {
