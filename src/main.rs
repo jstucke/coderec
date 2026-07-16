@@ -420,7 +420,7 @@ fn main() -> Result<()> {
         .arg(arg!(-d - -debug))
         .arg(arg!(-q - -quiet))
         .arg(arg!(-v - -verbose))
-        .arg(arg!(--"big-file" "Optimized analysis for files larger than X00MiB."))
+        .arg(arg!(-B --"big-file" "Optimized analysis for files larger than X00MiB."))
         .arg(arg!(--"plot-corpus" "Plot distributions of samples in corpus and exit."))
         .arg(arg!(--"plot-divs" "Plot raw analysis results in addition to region plot."))
         .arg(arg!(--"no-plots" "Do not generate any plots."))
