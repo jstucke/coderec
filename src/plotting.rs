@@ -33,7 +33,30 @@ const LABEL_STYLE_3D: (&str, u32, FontStyle, &RGBColor) =
 const CAPTION_STYLE_2D: (&str, u32, FontStyle, &RGBColor) =
     ("sans-serif", 80, FontStyle::Normal, &BLACK);
 const LABEL_STYLE_2D: (&str, u32, FontStyle, &RGBColor) =
-    ("Calibri", 12, FontStyle::Normal, &BLACK);
+    ("Calibri", 24, FontStyle::Normal, &BLACK);
+
+fn format_si(value: u64) -> String {
+    const PREFIXES: &[(u64, &str)] = &[
+        (1_000_000_000_000, "T"),
+        (1_000_000_000, "G"),
+        (1_000_000, "M"),
+        (1_000, "k"),
+    ];
+
+    for &(threshold, prefix) in PREFIXES {
+        if value >= threshold {
+            let whole = value / threshold;
+            let remainder = value % threshold;
+            if remainder == 0 {
+                return format!("{}{}", whole, prefix);
+            }
+            let frac = (value as f64) / (threshold as f64);
+            return format!("{:.1}{}", frac, prefix);
+        }
+    }
+
+    format!("{}", value)
+}
 
 impl CorpusStats {
     pub fn plot_tg(&self) {
@@ -162,6 +185,7 @@ pub fn plot_regions(
     base_address: u64,
     output_path: Option<impl AsRef<str>>,
     output_format: &str,
+    si_labels: bool,
 ) {
     let win_sz = det_res.win_sz;
 
@@ -181,13 +205,13 @@ pub fn plot_regions(
     if output_format == "svg" {
         let root = SVGBackend::new(&plot_name, (5000, 500)).into_drawing_area();
         plot_regions_with_backend(
-            root, file_name, file_len, file_bytes, det_res, big_file, base_address,
+            root, file_name, file_len, file_bytes, det_res, big_file, base_address, si_labels,
         );
     } else {
         let root = BitMapBackend::new(&plot_name, (5000, 500)).into_drawing_area();
         let root_clone = root.clone();
         plot_regions_with_backend(
-            root, file_name, file_len, file_bytes, det_res, big_file, base_address,
+            root, file_name, file_len, file_bytes, det_res, big_file, base_address, si_labels,
         );
         root_clone.present().unwrap();
     }
@@ -201,6 +225,7 @@ fn plot_regions_with_backend<Backend: plotters::backend::DrawingBackend>(
     det_res: &ProcessedDetectionResult,
     big_file: bool,
     base_address: u64,
+    si_labels: bool,
 ) {
     let arch_to_idx = &det_res.arch_to_idx;
     let arch_to_best_map = &det_res.arch_to_final_ranges;
@@ -345,7 +370,14 @@ fn plot_regions_with_backend<Backend: plotters::backend::DrawingBackend>(
         .x_labels(100)
         .y_labels(24)
         .max_light_lines(4)
-        .x_label_formatter(&|offset| format!("{:x}", { *offset + base_address as usize }))
+        .x_label_formatter(&|offset| {
+            let addr = *offset as u64 + base_address;
+            if si_labels {
+                format_si(addr)
+            } else {
+                format!("{:x}", addr)
+            }
+        })
         .y_label_formatter(&|offset| format!("{:x}", *offset as usize))
         .label_style(LABEL_STYLE_2D)
         .draw()

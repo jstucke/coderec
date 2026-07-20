@@ -425,6 +425,7 @@ fn main() -> Result<()> {
         .arg(arg!(--"plot-divs" "Plot raw analysis results in addition to region plot."))
         .arg(arg!(--"no-plots" "Do not generate any plots."))
         .arg(arg!(--"no-out" "Do not write detection results to stdout."))
+        .arg(arg!(--"si-labels" "Use decimal SI-prefix X-axis labels (e.g. 1M) instead of hex."))
         .arg(
             Arg::new("offset")
                 .short('o')
@@ -500,6 +501,8 @@ fn main() -> Result<()> {
 
     let base_address: &u64 = args.get_one("base").unwrap();
 
+    let si_labels = args.get_flag("si-labels");
+
     let corpus_stats = load_corpus();
 
     if args.get_flag("plot-corpus") {
@@ -546,6 +549,7 @@ fn main() -> Result<()> {
                 base_address,
                 output_path,
                 format,
+                si_labels,
             );
         }
 
