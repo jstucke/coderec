@@ -58,6 +58,33 @@ fn format_si(value: u64) -> String {
     format!("{}", value)
 }
 
+// calculates hex-friendly intervals for labels
+fn hex_key_points(range_end: usize, max_labels: usize) -> Vec<usize> {
+    if range_end == 0 || max_labels == 0 {
+        return vec![0];
+    }
+    let ideal_step = range_end / max_labels;
+    let step = if ideal_step == 0 { 1 } else { ideal_step.next_power_of_two() };
+    (0..=range_end).step_by(step).collect()
+}
+
+// calculates decimal-friendly intervals for labels
+fn decimal_key_points(range_end: usize, max_labels: usize) -> Vec<usize> {
+    let ideal_step = range_end / max_labels;
+    let magnitude = 10_usize.pow((ideal_step as f64).log10().floor() as u32);
+    let nice_step = if ideal_step <= magnitude {
+        magnitude
+    } else if ideal_step <= 2 * magnitude {
+        2 * magnitude
+    } else if ideal_step <= 5 * magnitude {
+        5 * magnitude
+    } else {
+        10 * magnitude
+    };
+    let step = nice_step.max(1);
+    (0..=range_end).step_by(step).collect::<Vec<_>>()
+}
+
 impl CorpusStats {
     pub fn plot_tg(&self) {
         let plot_name = format!("{}_tg.svg", self.arch);
@@ -232,6 +259,12 @@ fn plot_regions_with_backend<Backend: plotters::backend::DrawingBackend>(
 
     root.fill(&WHITE).unwrap();
 
+    let x_key_points = if si_labels {
+        decimal_key_points(file_len, 50)
+    } else {
+        hex_key_points(file_len, 50)
+    };
+
     let mut chart = ChartBuilder::on(&root)
         .caption(format!("{}, regions", file_name), CAPTION_STYLE_2D)
         .margin(5)
@@ -239,7 +272,10 @@ fn plot_regions_with_backend<Backend: plotters::backend::DrawingBackend>(
         .x_label_area_size(40)
         .y_label_area_size(40)
         .right_y_label_area_size(40)
-        .build_cartesian_2d(0..file_len, 0..256)
+        .build_cartesian_2d(
+            (0..file_len).with_key_points(x_key_points),
+            0..255,
+        )
         .unwrap();
 
     let binding = |coord: (usize, i32), size, style| {
@@ -367,7 +403,6 @@ fn plot_regions_with_backend<Backend: plotters::backend::DrawingBackend>(
         .unwrap();
     chart
         .configure_mesh()
-        .x_labels(100)
         .y_labels(24)
         .max_light_lines(4)
         .x_label_formatter(&|offset| {
