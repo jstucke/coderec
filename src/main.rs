@@ -21,6 +21,7 @@ mod plotting;
 
 use crate::corpus::{is_strict, load_corpus, CorpusStats};
 use crate::output::CliJsonOutput;
+use crate::plotting::PlotOptions;
 
 use std::cmp::min;
 use std::collections::{BTreeMap, HashMap};
@@ -426,6 +427,7 @@ fn main() -> Result<()> {
         .arg(arg!(--"no-plots" "Do not generate any plots."))
         .arg(arg!(--"no-out" "Do not write detection results to stdout."))
         .arg(arg!(--"si-labels" "Use decimal SI-prefix X-axis labels (e.g. 1M) instead of hex."))
+        .arg(arg!(--"no-title" "Do not add a title to the generated plot."))
         .arg(
             Arg::new("offset")
                 .short('o')
@@ -493,15 +495,15 @@ fn main() -> Result<()> {
     };
     simple_logger::init_with_level(level)?;
 
-    let big_file = args.get_flag("big-file");
+    let plot_opts = PlotOptions {
+        big_file: args.get_flag("big-file"),
+        si_labels: args.get_flag("si-labels"),
+        no_title: args.get_flag("no-title"),
+        output_path: args.get_one::<String>("output").cloned(),
+        output_format: args.get_one::<String>("format").unwrap().clone(),
+    };
 
-    let output_path: Option<&String> = args.get_one("output");
-
-    let format: &String = args.get_one("format").unwrap();
-
-    let base_address: &u64 = args.get_one("base").unwrap();
-
-    let si_labels = args.get_flag("si-labels");
+    let base_address: u64 = *args.get_one("base").unwrap();
 
     let corpus_stats = load_corpus();
 
@@ -526,10 +528,10 @@ fn main() -> Result<()> {
             (
                 &file_data[*offset as usize..(offset + length) as usize],
                 name,
-                *base_address + *offset,
+                base_address + *offset,
             )
         } else {
-            (file_data.as_slice(), file.clone(), *base_address)
+            (file_data.as_slice(), file.clone(), base_address)
         };
 
         let raw_res = detect_code(&corpus_stats, data, &name);
@@ -545,11 +547,8 @@ fn main() -> Result<()> {
                 data.len(),
                 data,
                 &processes_res,
-                big_file,
                 base_address,
-                output_path,
-                format,
-                si_labels,
+                &plot_opts,
             );
         }
 
