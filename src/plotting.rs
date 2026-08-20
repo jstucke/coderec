@@ -33,7 +33,65 @@ const LABEL_STYLE_3D: (&str, u32, FontStyle, &RGBColor) =
 const CAPTION_STYLE_2D: (&str, u32, FontStyle, &RGBColor) =
     ("sans-serif", 80, FontStyle::Normal, &BLACK);
 const LABEL_STYLE_2D: (&str, u32, FontStyle, &RGBColor) =
-    ("Calibri", 12, FontStyle::Normal, &BLACK);
+    ("Calibri", 24, FontStyle::Normal, &BLACK);
+
+pub struct PlotOptions {
+    pub big_file: bool,
+    pub si_labels: bool,
+    pub no_title: bool,
+    pub output_path: Option<String>,
+    pub output_format: String,
+}
+
+fn format_si(value: u64) -> String {
+    const PREFIXES: &[(u64, &str)] = &[
+        (1_000_000_000_000, "T"),
+        (1_000_000_000, "G"),
+        (1_000_000, "M"),
+        (1_000, "k"),
+    ];
+
+    for &(threshold, prefix) in PREFIXES {
+        if value >= threshold {
+            let whole = value / threshold;
+            let remainder = value % threshold;
+            if remainder == 0 {
+                return format!("{}{}", whole, prefix);
+            }
+            let frac = (value as f64) / (threshold as f64);
+            return format!("{:.1}{}", frac, prefix);
+        }
+    }
+
+    format!("{}", value)
+}
+
+// calculates hex-friendly intervals for labels
+fn hex_key_points(range_end: usize, max_labels: usize) -> Vec<usize> {
+    if range_end == 0 || max_labels == 0 {
+        return vec![0];
+    }
+    let ideal_step = range_end / max_labels;
+    let step = if ideal_step == 0 { 1 } else { ideal_step.next_power_of_two() };
+    (0..=range_end).step_by(step).collect()
+}
+
+// calculates decimal-friendly intervals for labels
+fn decimal_key_points(range_end: usize, max_labels: usize) -> Vec<usize> {
+    let ideal_step = range_end / max_labels;
+    let magnitude = 10_usize.pow((ideal_step as f64).log10().floor() as u32);
+    let nice_step = if ideal_step <= magnitude {
+        magnitude
+    } else if ideal_step <= 2 * magnitude {
+        2 * magnitude
+    } else if ideal_step <= 5 * magnitude {
+        5 * magnitude
+    } else {
+        10 * magnitude
+    };
+    let step = nice_step.max(1);
+    (0..=range_end).step_by(step).collect::<Vec<_>>()
+}
 
 impl CorpusStats {
     pub fn plot_tg(&self) {
@@ -158,18 +216,16 @@ pub fn plot_regions(
     file_len: usize,
     file_bytes: &[u8],
     det_res: &ProcessedDetectionResult,
-    big_file: bool,
     base_address: u64,
-    output_path: Option<impl AsRef<str>>,
-    output_format: &str,
+    opts: &PlotOptions,
 ) {
     let win_sz = det_res.win_sz;
 
     let file_name = file_name.split("/").last().unwrap();
-    let plot_name = if let Some(path) = output_path {
-        path.as_ref().to_string()
+    let plot_name = if let Some(path) = &opts.output_path {
+        path.clone()
     } else {
-        format!("{}_w{}_regions.{}", file_name, win_sz, output_format)
+        format!("{}_w{}_regions.{}", file_name, win_sz, opts.output_format)
     };
 
     if let Some(parent) = std::path::Path::new(&plot_name).parent() {
@@ -178,17 +234,13 @@ pub fn plot_regions(
         }
     }
 
-    if output_format == "svg" {
+    if opts.output_format == "svg" {
         let root = SVGBackend::new(&plot_name, (5000, 500)).into_drawing_area();
-        plot_regions_with_backend(
-            root, file_name, file_len, file_bytes, det_res, big_file, base_address,
-        );
+        plot_regions_with_backend(root, file_name, file_len, file_bytes, det_res, base_address, opts);
     } else {
         let root = BitMapBackend::new(&plot_name, (5000, 500)).into_drawing_area();
         let root_clone = root.clone();
-        plot_regions_with_backend(
-            root, file_name, file_len, file_bytes, det_res, big_file, base_address,
-        );
+        plot_regions_with_backend(root, file_name, file_len, file_bytes, det_res, base_address, opts);
         root_clone.present().unwrap();
     }
 }
@@ -199,22 +251,35 @@ fn plot_regions_with_backend<Backend: plotters::backend::DrawingBackend>(
     file_len: usize,
     file_bytes: &[u8],
     det_res: &ProcessedDetectionResult,
-    big_file: bool,
     base_address: u64,
+    opts: &PlotOptions,
 ) {
     let arch_to_idx = &det_res.arch_to_idx;
     let arch_to_best_map = &det_res.arch_to_final_ranges;
 
     root.fill(&WHITE).unwrap();
 
-    let mut chart = ChartBuilder::on(&root)
-        .caption(format!("{}, regions", file_name), CAPTION_STYLE_2D)
+    let x_key_points = if opts.si_labels {
+        decimal_key_points(file_len, 50)
+    } else {
+        hex_key_points(file_len, 50)
+    };
+
+    let mut builder = ChartBuilder::on(&root);
+    builder
         .margin(5)
         .top_x_label_area_size(40)
         .x_label_area_size(40)
         .y_label_area_size(40)
-        .right_y_label_area_size(40)
-        .build_cartesian_2d(0..file_len, 0..256)
+        .right_y_label_area_size(40);
+    if !opts.no_title {
+        builder.caption(format!("{}, regions", file_name), CAPTION_STYLE_2D);
+    }
+    let mut chart = builder
+        .build_cartesian_2d(
+            (0..file_len).with_key_points(x_key_points),
+            0..255,
+        )
         .unwrap();
 
     let binding = |coord: (usize, i32), size, style| {
@@ -224,7 +289,7 @@ fn plot_regions_with_backend<Backend: plotters::backend::DrawingBackend>(
         let arch_idx = *arch_to_idx.get(arch).unwrap();
         let style = arch_idx_to_color(arch_idx);
 
-        if !big_file {
+        if !opts.big_file {
             let arch_ranges_bytes_ser = PointSeries::of_element(
                 ranges
                     .iter()
@@ -291,7 +356,7 @@ fn plot_regions_with_backend<Backend: plotters::backend::DrawingBackend>(
                 .legend(move |(x, y)| Rectangle::new([(x - 10, y + 10), (x, y)], style.filled()));
         }
     }
-    if !big_file {
+    if !opts.big_file {
         let arch_ranges_bytes_ser = PointSeries::of_element(
             det_res
                 .range_to_final_result
@@ -342,10 +407,16 @@ fn plot_regions_with_backend<Backend: plotters::backend::DrawingBackend>(
         .unwrap();
     chart
         .configure_mesh()
-        .x_labels(100)
         .y_labels(24)
         .max_light_lines(4)
-        .x_label_formatter(&|offset| format!("{:x}", { *offset + base_address as usize }))
+        .x_label_formatter(&|offset| {
+            let addr = *offset as u64 + base_address;
+            if opts.si_labels {
+                format_si(addr)
+            } else {
+                format!("{:x}", addr)
+            }
+        })
         .y_label_formatter(&|offset| format!("{:x}", *offset as usize))
         .label_style(LABEL_STYLE_2D)
         .draw()
